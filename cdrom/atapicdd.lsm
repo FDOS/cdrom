@@ -1,0 +1,15 @@
+Begin3
+Title:          ATAPICDD
+Version:        0.2.6
+Entered-date:   20030626
+Description:    public domain ATAPI (IDE) CD-ROM DOS device driver
+                ATA support based partially on Hale Landis' public domain ATADRVR
+Keywords:       DOS CD-ROM device driver
+Author:         Kenneth J. Davis <jeremyd@computer.org>
+Maintained-by:  Kenneth J. Davis <jeremyd@computer.org>
+Primary-site:   http://www.darklogic.org/fdos/projects/atapicdd/
+Alternate-site: 
+Original-site:  http://www.darklogic.org/fdos/projects/atapicdd/
+Platforms:      DOS (TASM, NASM)
+Copying-policy: public domain
+End

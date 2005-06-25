@@ -1,0 +1,202 @@
+$ATAPIMGR$ - FreeDOS(TM) ASPI/ATASPI Support for ATAPI devices
+[??? Change to FDASMGR$ or PDASMGR$ to prevent conflicts with MKE's one???]
+
+Original Specification - February 16, 2004
+Changes:
+  July 17, 2004: minor typos corrected, added Further Reading section
+
+
+                             Preface
+
+$ATAPIMGR$ is an ASPI/ATASPI implementation for ATA (IDE) controllers.
+Its primary purpose is to support ATA (IDE) CD-ROM drives and similar.
+In particular, most CD writing software use ASPI to send the SCSI
+requests to the CD-Writer and so do not normally work with ATA (IDE)
+CD-Writers.  ASPI (Advanced [or Adaptec] SCSI Programming Interface)
+originated with Adaptec to define a common interface supporting both
+device specific drivers to cooporate (ie. not clobber each other when
+accessing the host adapter) and not be host adapter dependent (ie. the
+same device driver could be used regardless of which SCSI card a user
+placed the device on).  ATASPI (ATA Software Programming Interface)
+originated with Future Domain.  It has similar goals as ASPI, but
+is intended for ATA (IDE) devices.  The ATASPI (version 0.72 is the
+one $ATAPIMGR$ follows, as it is freely available without restrictions)
+specification is compatible with older ASPI specifications but redefines
+a few of the reserved fields.  Unfortunately this makes it incompatible
+with more recent ASPI specifications which give some of these different
+meaning.  As the differences are minor (at least regarding ATA devices),
+$ATAPIMGR$ supports both the ATASPI specification and ASPI over ATA
+as best as possible.  WARNING: initial implementation of $ATAPIMGR$
+may not implement all features, but should correctly report failure
+or unsupported status.
+
+Please note, the proper name is $ATAPIMGR$
+The dollar signs ($) should appear before and after the word ATAPIMGR.
+This reflects that it supports both ASPI (SCSIMGR$) and ATASPI ($ATAMGR$).
+*** Do not confuse this driver with the similarly named ATAPIMGR.SYS 
+(MKE ATAPI Manager) as provided by Matsushita-Kotobuki Electronics as
+an ASPI only driver for ATAPI DVD-ROM drives.
+
+
+$ATAPIMGR$ is released to the public domain.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS 
+BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN 
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+SOFTWARE.
+
+                          Overview to Usage
+
+Please refer to either the ATASPI specification, the ASPI specification
+for DOS, or Ralf Brown's Interrupt List for details.  Depending on how
+the device driver is loaded, it will either be in ATASPI mode or ASPI
+mode.  An application (or device specific driver, e.g. CD-ROM driver) must
+first obtain the entry point via DOS calls.  Once this is successfully
+obtained it may issue requests by placing an initialized SRB [SCSI Request
+Block] on the stack and calling the entry point.  WARNING: All requests may
+use the caller's stack!  Be sure it is large enough to support any 
+ASPI/ATASPI implementation installed.  
+{TODO, provide details as to minimal stack $ATAPIMGR$ requires.}
+
+Pseudo Code:
+  if (ATASPI) mgrName = "$ATAMGR$"
+  else (ASPI) mgrName = "SCSIMGR$"
+  int handle = dos_open(mgrName)
+  if (handle IS INVALID) fail("No ASPI/ATASPI Manager Installed!")
+  void (*entryPoint)(struct SCSIRequestBlock *srb) = dos_read(handle, 4 bytes)
+  if (entryPoint IS NULL or BytesReturned NOT EQUAL 4) fail ("Error obtaining Entry Point!")
+  dos_close(handle)
+     ...
+  initialize_srb(struct SCSIRequestBlock *srb) { srb = ... }
+  entryPoint(srb)
+  while(srb->status IS PENDING) doSomethingElseLikeWait()
+  if (srb->status IS ERROR) handleError()
+  else handleSuccess()
+
+
+                           Command Codes
+
+Each ASPI/ATASPI request has in the first byte of the
+SRB [SCSI Request Block] the ASPI/ATAPI action to perform.
+ASPI/ATASPI command codes supported:
+
+STANDARD ASPI/ATASPI COMMAND CODES
+   cmd code    impl    action                                              abbr. name                   
+     0x00      [1]     Controller inquiry (get host adapater information)  <HAInq>
+     0x01       -      Get device type                                     <GetDevType>
+     0x02      [2]     Execute I/O (perform ATA or SCSI/ATAPI I/O command) <ExecIO>
+     0x03       -      Abort I/O request (passed SRB of prior 0x02 call)   <AbortIO>
+     0x04      [3]     Reset device                                        <ResetDev>
+     0x05       -      Set controller Parameters  (STUB IMPLEMENTATION)    <SetHAParams>
+     0x06       -      Get disk drive information (STUB IMPLEMENTATION)    <GetDrvInfo>
+     0x07      N/A     Rescan SCSI bus (NOT SUPPORTED, ASPI32 only)        <RescanBus>
+     0x08       -      Get/Set SRB timeouts (ASPI32, but TO BE SUPPORTED)  <GetSetSRBTimeouts>
+   0x09-0x7F   N/A     Reserved for future ASPI/ATASPI expansion
+   0x80-0xFF   N/A     Reserved for Vendor Unique
+
+$ATAPIMGR$ UNIQUE ASPI/ATASPI COMMAND CODES
+   cmd code    impl    action                             abbr. name
+     0x80      [4]     Installation check                 <InstChk>
+     0x81      [5]     Reserved for future use            <GetSetParams>
+     0x82       -      Perform an ASPI Exec I/O request   <ExecIOASPI>
+     0x83       -      Perform an ATASPI Exec I/O request <ExecIOATASPI>
+
+
+All commands except ExecIO [0x02 (0x82,0x83)] and AbortIO [0x03] are
+synchronous; the command will not return until the action completes.
+ExecIO and AbortIO are asynchronous so one must either poll the status
+byte of the SRB used until non-zero and/or supply a POST function.
+(The POST function is called once the action completes.)
+NOTE: when the default PIO (polled I/O) method is used for data transfer,
+all commands will behave synchronously (i.e. even ExecIO and AbortIO
+do not return until complete).  One should not rely on this behaviour,
+as interrupt drive I/O or DMA based I/O may support the asynchronous
+behaviour.  WARNING: if your program requires asynchronous support
+for these commands then it may not behave well with this ASPI
+implementation.
+
+[1] In ATASPI mode the controller ID (haID) must be set to 0xFF in order
+    to obtain the total number of controllers available (haCnt) on return.
+    For any other value haCnt is set to 0 and the request is assumed to
+    be for the indicated controller (i.e. a simple obtain information
+    about specified controller).
+    In ASPI mode the controller ID should be 0 in order to obtain the
+    total number of controllers available (haCnt) on return.  All calls
+    are assummed to be requests for information about the indicated
+    controller, however all calls with a valid haID also return in
+    haCnt the total controllers available.  The use of 0 on entry
+    is because the ASPI driver should fail to load if no valid adapters
+    are not found (hence the request to obtain the ASPI entry point
+    should have already failed if none are available) and controllers
+    (host adapters) are assigned IDs beginning with 0. (I.e. you are
+    requesting information for the 1st adapter found.)
+    *** I [kjd] have only access to one true ATASPI driver, but it
+    appears one can use this information to determine whether one is
+    working over an ATASPI or an ASPI layer; however I suggest one
+    rely on the device name instead ($ATAMGR$ for ATASPI and
+    SCSIMGR$ for ASPI) possibly with a user override.
+
+[2] The standard ExecIO command will determine if driver is operating
+    in ASPI mode or ATASPI mode and route (JMP) to corresponding
+    ExecIO implementation (Vendor Unique 0x82 or 0x83 respectively).
+    Each mode has slightly different SRB flag values supported,
+    specifically the initially reserved bit 2 determines ATA/ATAPI
+    for ATASPI but determines residual byte length reporting for ASPI.
+    There may be other incompatibilities introduced by newer versions
+    of each specification as well.
+    In ASPI mode, the ExecIO call only supports ATAPI (i.e. SCSI) I/O.
+    In ATASPI mode, the flags indicate if ExecIO call is ATAPI or ATA.
+    After establishing $ATAMGR$ is in use, regardless of current
+    emulation mode (ASPI or ATASPI), any client may directly invoke
+    the Vendor Unique commands ExecIOASPI or ExecIOATASPI as though
+    they were the corresponding ExecIO command by use of appropriate
+    command code.  [That is, even in ATASPI mode, an application could
+    use the ASPI semantics of ExecIO by using ExecIOASPI instead of
+    ExecIO or conversely in ASPI mode, an application could use the
+    ATASPI semantics of ExecIO by using ExecIOATASPI directly.]
+
+[3] In ASPI mode or ATASPI mode when device supports ATAPI, this will
+    attempt to reset only the indicated device.  In ATASPI mode and
+    the device does not support ATAPI, then all devices (both Master
+    and Slave) on bus will be reset via setting the ATA SRST bit.
+
+[4] On entry uses same SRB as command 0x00 (except command code of course).
+    On return if not $ATAMGR$ and not supported should indicate error
+    0x80 (Invalid request) in status.  If supported and is $ATAMGR$
+    then will return status of 0x01 (Successfully completed) with the
+    SRB filled in as follows:
+        Offset   Size   Description
+         0x00    BYTE   0xFD  (probably still 0x80 if unsupported)
+         0x01    BYTE   0x01  (should be 0x80 invalid request if unsupported)
+         0x02    BYTE   0x4A   ASCII 'J'
+         0x03    BYTE   flags, bit 1-7 reserved (mask off via AND 0x01)
+                               bit 0 indicates current emulation mode,
+                                     if unset (0) then in ASPI mode
+                                     if set (1) then in ATASPI mode
+         0x04    WORD   major version number of this driver
+         0x06    WORD   minor version number of this driver
+
+[5] This is reserved, current implementation returns error 0x80 (Invalid
+    request).  Future versions may use this to support dynamic feature
+    changes.  E.g. setting ATA/ATAPI parameters, dynamically switching
+    between ASPI and ATASPI mode, etc.
+
+
+
+
+                           Further Reading
+
+For further information, please see:
+
+(1) Advanced SCSI Programming Interface (ASPI) 8/4/91 DOS Specification,
+copyright 1989-1991 Adaptec, Inc.  All rights reserved.
+
+(2) Advanced SCSI Programming Interface; ASPI for Win32 Technical Reference
+November 6, 2001, copyright 1989-2001 Adaptec, Inc.  All rights reserved.
+
+(3) {TODO: add SCSI and ATAPI specifications}
+
+End.
